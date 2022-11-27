@@ -47,6 +47,12 @@ function Variables:render(canvas, parent_ref, variables, indent)
   end
   indent = indent or 0
   for var_index, variable in pairs(variables) do
+    if variable.name == "" then
+      if variable.variablesReference ~= 0 then
+        self:render_children(canvas, variable, indent - config.windows().indent)  
+      end
+      return
+    end
     canvas:write(string.rep(" ", indent))
     local prefix = self:_reference_prefix(variable)
     canvas:write(prefix, { group = "DapUIDecoration" })
@@ -69,7 +75,7 @@ function Variables:render(canvas, parent_ref, variables, indent)
     else
       var_group = "DapUIModifiedValue"
     end
-    local function add_var_line(line)
+    local function add_var_line(line, hasValue)
       if variable.variablesReference > 0 then
         canvas:add_mapping(
           config.actions.EXPAND,
@@ -84,41 +90,53 @@ function Variables:render(canvas, parent_ref, variables, indent)
         self.var_to_set = variable
         loop.run()
       end)
-      canvas:write(line .. "\n", { group = var_group })
+      if hasValue then
+        canvas:write(line .. "\n", { group = var_group })
+      else 
+        canvas:write("\n")
+      end
     end
 
-    if #(variable.value or "") > 0 then
-      canvas:write(" = ")
-      local value_start = #canvas.lines[canvas:length()]
-      local value = variable.value
+    if variable.variablesReference == 0 or var_type == "String" then
+      if #(variable.value or "") > 0 then
+        canvas:write(" = ")
+        local value_start = #canvas.lines[canvas:length()]
+        local value = variable.value
 
-      for _, line in ipairs(util.format_value(value_start, value)) do
-        add_var_line(line)
+        for _, line in ipairs(util.format_value(value_start, value)) do
+          add_var_line(line, true)
+        end
+      else
+        add_var_line(variable.value, true)
       end
-    else
-      add_var_line(variable.value)
+    else 
+      add_var_line("", false)
     end
 
     if self.expanded_children[variable.name] and variable.variablesReference ~= 0 then
-      local child_vars = self.state:variables(variable.variablesReference)
-      if not child_vars then
-        -- Happens when the parent component is collapsed and the variable
-        -- reference changes when re-opened.  The name is recorded as opened
-        -- but the variable reference is not yet monitored.
-        if not self.state:is_monitored(variable.variablesReference) then
-          self.state:monitor(variable.variablesReference)
-        end
-        return
-      else
-        self
-          :_get_child_component(variable.name)
-          :render(canvas, variable.variablesReference, child_vars, indent + config.windows().indent)
-      end
+      self:render_children(canvas, variable, indent)
     end
   end
   if self.state:step_number() ~= self.rendered_step then
     self.rendered_vars = variables
     self.rendered_step = self.state:step_number()
+  end
+end
+
+function Variables:render_children(canvas, variable, indent)
+  local child_vars = self.state:variables(variable.variablesReference)
+  if not child_vars then
+    -- Happens when the parent component is collapsed and the variable
+    -- reference changes when re-opened.  The name is recorded as opened
+    -- but the variable reference is not yet monitored.
+    if not self.state:is_monitored(variable.variablesReference) then
+      self.state:monitor(variable.variablesReference)
+    end
+    return
+  else
+    self
+      :_get_child_component(variable.name)
+      :render(canvas, variable.variablesReference, child_vars, indent + config.windows().indent)
   end
 end
 
